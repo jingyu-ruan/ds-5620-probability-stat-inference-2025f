@@ -1,0 +1,129 @@
+---
+title: "DS-5620 HW3"
+author: "Jingyu Ruan"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+    latex_engine: xelatex
+  html_document:
+    toc: yes
+    toc_depth: 2
+    number_sections: yes
+    df_print: paged
+---
+
+# Overview
+
+**Assumptions:**
+1. Each game is independent.  
+2. The per-game win probability for the Braves is constant (\(P_B\)) across games.  
+
+**Key fact:** In a best-of-n (odd) series, a team needs \(w=(n+1)/2\) wins. The probability of winning the series is:
+\[
+\mathbb{P}(\text{win}) \;=\; \sum_{m=0}^{w-1} \binom{(w-1)+m}{m}\, p^{\,w}(1-p)^m
+\]
+
+For coding, it’s easier to compute with the binomial:
+\[
+\mathbb{P}(\text{win series}) = 1 - \text{pbinom}(w-1, n, p).
+\]
+
+```{r}
+prob_win_best_of_n <- function(p, n){
+  stopifnot(n %% 2 == 1)
+  w <- floor(n/2) + 1
+  1 - pbinom(w - 1, n, p)
+}
+
+prob_win_best_of_7 <- function(p){
+  prob_win_best_of_n(p, n = 7)
+}
+
+min_odd_n_for_target <- function(p, target = 0.8, n_max = 4001){
+  for(n in seq(1, n_max, by = 2)){
+    if(prob_win_best_of_n(p, n) >= target) return(as.integer(n))
+  }
+  return(NA_integer_)
+}
+```
+
+# Q1
+**Result:** 60.8% 
+
+```{r}
+prob_q1 <- prob_win_best_of_7(0.55)
+prob_q1
+```
+
+# Q2
+```{r}
+x <- seq(0, 1, by = 0.001)
+y <- prob_win_best_of_7(x)
+
+plot(x, y, type = "l",
+     xlab = expression(P[B]),
+     ylab = "P(Braves win series, best-of-7)",
+     main = "Best-of-7: Series Win Probability vs Game Chance")
+abline(v = 0.55, lty = 2)
+abline(h = prob_win_best_of_7(0.55), lty = 2)
+```
+
+
+# Q3
+**Answer:** best-of-71.  
+
+```{r}
+min_n_q3 <- min_odd_n_for_target(0.55, 0.8, n_max = 4001)
+min_n_q3
+prob_win_best_of_n(0.55, min_n_q3)
+```
+
+# Q4
+```{r}
+p_grid <- seq(0.5, 0.95, by = 0.005)
+n_needed <- vapply(p_grid, function(p) min_odd_n_for_target(p, 0.8, 4001),
+                   FUN.VALUE = integer(1))
+
+plot(p_grid, n_needed, type = "s",
+     xlab = expression(P[B]),
+     ylab = "Shortest odd n with P(win) ≥ 0.8",
+     main = "Series Length Needed for ≥80% Confidence")
+grid()
+points(0.55, min_n_q3, pch = 19)
+text(0.55, min_n_q3, labels = "0.55 → 71", pos = 4)
+```
+
+**Explaination:**  
+At \(P_B\ge 0.8\): a single game is enough.  
+Around 0.70: need best-of-5.
+Around 0.60: need best-of-17.  
+At 0.55: need best-of-71.  
+As \(P_B\to 0.5\): required length explodes.  
+
+# Q5
+Likelihood under \(p\): \(\binom{6}{3}p^4(1-p)^3\).  
+Posterior:
+\[
+P(p=0.55 \mid \text{win in 7}) = \frac{0.55}{0.55+0.45} = 0.55.
+\]
+
+```{r}
+like <- function(p){ choose(6,3) * p^4 * (1-p)^3 }
+post_055 <- like(0.55) / (like(0.55) + like(0.45))
+post_055
+```
+
+**Explaination:** Braves win in 7 = first 6 games are 3--3 and Braves win game 7. Likelihood for per-game win probability \(p\):
+\[
+L(p)=\binom{6}{3}p^{4}(1-p)^{3}.
+\]
+With equal priors on \(p=0.55\) and \(p=0.45\), Bayes' rule gives
+\[
+P(p=0.55\mid\text{data})=\frac{L(0.55)}{L(0.55)+L(0.45)}
+=\frac{0.55^{4}0.45^{3}}{0.55^{4}0.45^{3}+0.45^{4}0.55^{3}}
+=\frac{0.55}{0.55+0.45}=0.55.
+\]
+
+
+

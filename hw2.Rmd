@@ -1,0 +1,199 @@
+---
+title: "Drunkard Random Walk — Simulation Writeup"
+author: ' '
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Drunkard Random Walk — Simulation Study
+## -------------------------------------------------------------
+## Coordinate system:
+##   x-axis: West (–)  ← 0 →  East (+)
+##   y-axis: South (–) ↓ 0 ↑  North (+)
+## Home is exactly at (x = +11, y = –6)
+
+## -----------------------------
+## step 1: set your parameters
+set.seed(1)       # set seed at 1
+m <- 5000         # number of simulations
+max_flips <- 5000 # cap per simulation
+target_x <- 11
+target_y <- -6
+
+## -------------------------------------------------------------
+## Helpers to flip coins and move
+
+# Flip a single coin: returns 1 for Head, 0 for Tail
+flip_coin <- function(p_head = 0.5) rbinom(1, size = 1, prob = p_head)
+
+# step 2.1: two-coin rule → horizontal move
+#   HH → +1 (east), TT → –1 (west), HT/TH → 0 (stay)
+move_horizontal <- function(p1 = 0.5, p2 = 0.5) {
+  c1 <- flip_coin(p1)
+  c2 <- flip_coin(p2)
+  if (c1 == 1 && c2 == 1) return(+1)
+  if (c1 == 0 && c2 == 0) return(-1)
+  return(0)
+}
+
+# step 2.2: one-coin rule → vertical move
+#   Head → +1 (north), Tail → –1 (south)
+move_vertical <- function(p3 = 0.5) if (flip_coin(p3) == 1) +1 else -1
+
+## -------------------------------------------------------------
+## step 3: simulate one walk; stop at home or when max flips hit
+simulate_walk <- function(max_flips = 5000,
+                          target_x = 11, target_y = -6,
+                          p1 = 0.5, p2 = 0.5, p3 = 0.5) {
+  # store path (include starting point)
+  x <- 0; y <- 0
+  xs <- numeric(max_flips + 1); ys <- numeric(max_flips + 1)
+  xs[1] <- x; ys[1] <- y
+
+  flips <- 0L
+  success <- FALSE
+
+  while (flips < max_flips) {
+    flips <- flips + 1L
+    x <- x + move_horizontal(p1, p2)
+    y <- y + move_vertical(p3)
+    xs[flips + 1L] <- x
+    ys[flips + 1L] <- y
+
+    if (x == target_x && y == target_y) {
+      success <- TRUE
+      break
+    }
+  }
+
+  # Trim unused tail of path
+  path <- cbind(step = 0:flips, x = xs[1:(flips + 1)], y = ys[1:(flips + 1)])
+  list(success = success, flips = flips, path = path)
+}
+
+## -------------------------------------------------------------
+## step 4: repeat simulation m times and summarize (conditional on success)
+
+run_sims <- function(m = 5000, max_flips = 5000,
+                     target_x = 11, target_y = -6,
+                     p1 = 0.5, p2 = 0.5, p3 = 0.5) {
+  flips_vec  <- integer(m)
+  success_vec <- logical(m)
+  # Optionally keep some successful paths for plotting
+  kept_paths <- list()
+  keep_first_k <- 6L
+
+  kept <- 0L
+  for (i in 1:m) {
+    res <- simulate_walk(max_flips, target_x, target_y, p1, p2, p3)
+    flips_vec[i] <- res$flips
+    success_vec[i] <- res$success
+    if (res$success && kept < keep_first_k) {
+      kept <- kept + 1L
+      kept_paths[[kept]] <- res$path
+    }
+  }
+
+  successes <- which(success_vec)
+  avg_flips_conditional <- if (length(successes) > 0) {
+    mean(flips_vec[successes])
+  } else {
+    NA_real_
+  }
+
+  list(
+    avg_flips_conditional = avg_flips_conditional,
+    success_rate = mean(success_vec),
+    n_success = sum(success_vec),
+    flips = flips_vec,
+    success = success_vec,
+    example_paths = kept_paths
+  )
+}
+
+## -------------------------------------------------------------
+## Plotting: show example trajectories (x vs y after each flip)
+plot_paths_grid <- function(paths_list, target_x = 11, target_y = -6, main_prefix = "") {
+  if (length(paths_list) == 0) {
+    message("No successful paths to plot.")
+    return(invisible(NULL))
+  }
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par), add = TRUE)
+
+  # Arrange up to 6 plots in 2x3 grid
+  n <- min(length(paths_list), 6L)
+  nr <- 2; nc <- 3
+  par(mfrow = c(nr, nc), mar = c(3.5, 3.5, 2.5, 1), mgp = c(2, 0.7, 0))
+
+  for (i in 1:n) {
+    path <- paths_list[[i]]
+    x <- path[, "x"]; y <- path[, "y"]
+
+    # axis limits to frame start and home
+    xlim <- range(c(x, 0, target_x)) + c(-1, +1)
+    ylim <- range(c(y, 0, target_y)) + c(-1, +1)
+
+    plot(x, y, type = "l", xlab = "West  ⟵  x  ⟶  East",
+         ylab = "South  ↓  y  ↑  North", xlim = xlim, ylim = ylim,
+         main = sprintf("%sPath %d (flips = %d)", main_prefix, i, max(path[, "step"])))
+    grid(col = "gray85")
+    points(0, 0, pch = 19)                          # start
+    points(target_x, target_y, pch = 17)            # home
+    # Add arrow markers every ~10 steps to hint direction
+    idx <- seq(1, nrow(path), by = max(1L, floor(nrow(path) / 10)))
+    arrows(path[idx[-length(idx)], "x"], path[idx[-length(idx)], "y"],
+           path[idx[-1], "x"], path[idx[-1], "y"], length = 0.07)
+    legend("topleft", c("Start (0,0)", sprintf("Home (%d,%d)", target_x, target_y)),
+           pch = c(19, 17), bty = "n", cex = 0.9)
+  }
+  invisible(NULL)
+}
+
+## -------------------------------------------------------------
+## Run three scenarios
+## A) Baseline: all coins fair
+cat("\n=== Scenario A: all fair (p1 = 0.5, p2 = 0.5, p3 = 0.5) ===\n")
+res_A <- run_sims(m, max_flips, target_x, target_y, p1 = 0.5, p2 = 0.5, p3 = 0.5)
+print(list(
+  average_flips_given_return = res_A$avg_flips_conditional,
+  success_rate = res_A$success_rate,
+  n_success = res_A$n_success
+))
+
+# Plot a few successful paths
+plot_paths_grid(res_A$example_paths, target_x, target_y, main_prefix = "Fair: ")
+
+## B) Coin 1 biased toward Head: p1 = 0.7, others fair
+cat("\n=== Scenario B: coin 1 biased (p1 = 0.7, p2 = 0.5, p3 = 0.5) ===\n")
+res_B <- run_sims(m, max_flips, target_x, target_y, p1 = 0.7, p2 = 0.5, p3 = 0.5)
+print(list(
+  average_flips_given_return = res_B$avg_flips_conditional,
+  success_rate = res_B$success_rate,
+  n_success = res_B$n_success
+))
+
+plot_paths_grid(res_B$example_paths, target_x, target_y, main_prefix = "Bias c1: ")
+
+## C) Coin 1 and 2 biased toward Head: p1 = 0.7, p2 = 0.7, coin 3 fair
+cat("\n=== Scenario C: coins 1 & 2 biased (p1 = 0.7, p2 = 0.7, p3 = 0.5) ===\n")
+res_C <- run_sims(m, max_flips, target_x, target_y, p1 = 0.7, p2 = 0.7, p3 = 0.5)
+print(list(
+  average_flips_given_return = res_C$avg_flips_conditional,
+  success_rate = res_C$success_rate,
+  n_success = res_C$n_success
+))
+
+plot_paths_grid(res_C$example_paths, target_x, target_y, main_prefix = "Bias c1&c2: ")
+
+## -------------------------------------------------------------
+## Notes for your blog text (talking points):
+## - Each “flip” means we flip three coins simultaneously: two decide east/west/stay; the third decides north/south.
+## - We repeat full simulations 5,000 times and cap each at 5,000 flips so runs can “time out”.
+## - We only average the number of flips over the simulations that actually reach the exact home (x=11, y=-6).
+## - Biasing coin 1 toward Heads (p=0.7) nudges eastward progress (more HH) and reduces west steps (fewer TT),
+##   so successful runs tend to require fewer flips and success rate typically rises.
+## - Biasing both coin 1 and coin 2 to Heads (both 0.7) strengthens that eastward push even more,
+##   further improving the chance to hit x=11 and often lowering the conditional average number of flips.
+
